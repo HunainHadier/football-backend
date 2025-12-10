@@ -25,9 +25,6 @@ function phi(z) {
     return 0.5 * (1 + erf(z / Math.sqrt(2)));
 }
 
-
-
-
 function normalCdf(z) {
     // For Asia calculation - same as phi(z) but clearer intent
     return phi(z); 
@@ -54,7 +51,6 @@ function calculateAfricaCompetencyMetrics(competencyName, qEntries) {
     return { Competency_Score_Raw: competencyScoreRaw };
 }
 
-
 // Helper function to compute raw score for a single Competency (Asia Logic)
 function calculateAsiaCompetencyMetrics(probabilities, questions, negatives) {
     const scores = [];
@@ -76,7 +72,6 @@ function calculateAsiaCompetencyMetrics(probabilities, questions, negatives) {
     
     return { Competency_Score_Raw: competencyScoreRaw };
 }
-
 
 // --- ASIA MAPPING & WEIGHTS (From your previous response's getAsiaBehaviorScore) ---
 const ASIA_CONFIG = {
@@ -174,7 +169,6 @@ async function calculateAfricaScore(playerId, answersRow, statsMap) {
     return Number(overallScoreSum.toFixed(4)) * 100;
 }
 
-
 // Function for Asia Logic (From your previous getAsiaBehaviorScore logic)
 async function calculateAsiaScore(playerId, answersRow, statsRows) {
     const { categoryMaps, traitWeights } = ASIA_CONFIG;
@@ -214,104 +208,18 @@ async function calculateAsiaScore(playerId, answersRow, statsRows) {
     return Number((playerBehaviorOverallScoreRaw * 100).toFixed(3));
 }
 
-// 2. Helper Competency Calculation Function (from getBehaviorScore)
-
-// This function calculates scores for a single competency (using Africa logic)
-function calculateCompetencyMetrics(competencyName, qEntries) {
-    // 1. Filter relevant questions and calculate Total Score (Sum of Phi)
-    const relevantEntries = qEntries.filter(q => q.competency === competencyName);
-    const gaPhiValues = relevantEntries.map(e => e.phi);
-    // totalScore now uses full precision phi values
-    const totalScore = gaPhiValues.reduce((s, x) => s + (Number(x) || 0), 0);
-
-    // 2. Dynamic MAX/MIN/Quartile Calculation (Based on 51 questions mapping)
-    const countMap = {
-        "Game Awareness": 13,     
-        "Team work": 9,           
-        "Discipline & Ethics": 6,
-        "Resilience": 4,          
-        "Focus": 3,               
-        "Leadership": 6,          
-        "Communication": 2,     
-        "Endurance": 3,     
-        "Speed": 3,     
-        "Agility": 2              
-    };
-    const MAX_SCORE = countMap[competencyName] || 0;
-    const MIN_SCORE = 0;
-
-    // Custom logic to match Excel's QUARTILE.INC on range [0, Max]
-    const getQuartileValue = (rangeMax, type) => {
-        // Use the hardcoded values from the Excel sheet where available
-        if (competencyName === "Game Awareness" && rangeMax === 13) {
-            if (type === 1) return 3;
-            if (type === 2) return 7;
-            if (type === 3) return 10;
-        }
-        // Use decimal quartiles (QTR4 is MAX_SCORE)
-        return (rangeMax * type) / 4;
-    };
-
-    const QTR1 = getQuartileValue(MAX_SCORE, 1);
-    const QTR2 = getQuartileValue(MAX_SCORE, 2);
-    const QTR3 = getQuartileValue(MAX_SCORE, 3);
-
-    // 3. Competency score normalized (0..1) - needed for overall calculation
-    const denominator = (MAX_SCORE - MIN_SCORE) || 1;
-    const competencyScoreRaw = (totalScore - MIN_SCORE) / denominator;
-
-    return {
-        // We only need the raw score (0-1) for overall calculation
-        Competency_Score_Raw: competencyScoreRaw, 
-    };
-}
-
-
-
-// 3. Overall Score Calculation Logic (from getBehaviorScore)
-
+// 3. Overall Score Calculation Logic (UPDATED)
 async function calculatePlayerOverallScore(playerId, coachRegion) {
     try {
-        // --- CONSTANTS ---
-        const mappingMap = new Map([
-            // ... (All 51 question mappings remain the same) ...
-            [1, 'Game Awareness'], [11, 'Game Awareness'], [21, 'Game Awareness'], [29, 'Game Awareness'],
-            [34, 'Game Awareness'], [38, 'Game Awareness'], [42, 'Game Awareness'], [44, 'Game Awareness'],
-            [46, 'Game Awareness'], [48, 'Game Awareness'], [49, 'Game Awareness'], [50, 'Game Awareness'],
-            [51, 'Game Awareness'],
-            [2, 'Team work'], [12, 'Team work'], [22, 'Team work'], [30, 'Team work'],
-            [35, 'Team work'], [39, 'Team work'], [43, 'Team work'], [45, 'Team work'],
-            [47, 'Team work'],
-            [3, 'Discipline & Ethics'], [13, 'Discipline & Ethics'], [23, 'Discipline & Ethics'],
-            [31, 'Discipline & Ethics'], [36, 'Discipline & Ethics'], [40, 'Discipline & Ethics'],
-            [4, 'Resilience'], [14, 'Resilience'], [24, 'Resilience'], [32, 'Resilience'],
-            [5, 'Focus'], [15, 'Focus'], [25, 'Focus'],
-            [6, 'Leadership'], [16, 'Leadership'], [26, 'Leadership'], [33, 'Leadership'],
-            [37, 'Leadership'], [41, 'Leadership'],
-            [7, 'Communication'], [17, 'Communication'],
-            [8, 'Endurance'], [18, 'Endurance'], [27, 'Endurance'],
-            [9, 'Speed'], [19, 'Speed'], [28, 'Speed'],
-            [10, 'Agility'], [20, 'Agility']
-        ]);
-        
-        const competencyList = [
-            "Game Awareness", "Team work", "Discipline & Ethics", "Resilience",
-            "Focus", "Leadership", "Communication", "Endurance", "Speed", "Agility"
-        ];
-        const WEIGHTS = {
-            "Game Awareness": 0.652, "Team work": 0.707, "Discipline & Ethics": 0.738,
-            "Resilience": 0.633, "Focus": 0.439, "Leadership": 0.620,
-            "Communication": 0.597, "Endurance": 0.592, "Speed": 0.645, "Agility": 0.760
-        };
-        const TOTAL_WEIGHT = 6.383; // Sum of all weights
+        // Region check
+        const isAsia = coachRegion.toLowerCase() === "asia";
+        console.log(`Calculating score for player ${playerId}, region: ${coachRegion}, isAsia: ${isAsia}`);
 
         // --- DYNAMIC TABLE SELECTION ---
-        // Region ke hisaab se sahi table select karein
-        const isAsia = coachRegion.toLowerCase() === "asia";
         const answersTable = isAsia ? "asia_behavior_answers" : "africa_behavior_answers";
         const statsTable = isAsia ? "asia_question_stats" : "africa_question_stats";
 
-        console.log(`Using tables: ${answersTable}, ${statsTable} for player ${playerId}`); // Debug check
+        console.log(`Using tables: ${answersTable}, ${statsTable} for player ${playerId}`);
 
         // 1) Fetch latest answers row for player
         const [answersRows] = await pool.query(
@@ -320,143 +228,35 @@ async function calculatePlayerOverallScore(playerId, coachRegion) {
         );
         if (!answersRows.length) {
             console.log(`No answers found in ${answersTable} for player ${playerId}`);
-            return null; // No score if no answers
+            return null;
         }
         const answersRow = answersRows[0];
 
-        // 2) Fetch all question stats and map
+        // 2) Fetch all question stats
         const [statsRows] = await pool.query(`SELECT q_id, mean, sd FROM ${statsTable} ORDER BY q_id ASC`);
         
-        // Agar stats nahi hain, toh calculation nahi hogi
         if (!statsRows.length) {
             console.log(`No stats found in ${statsTable}.`);
             return null;
         }
 
-        const statsMap = new Map(statsRows.map(s => [s.q_id, { mean: Number(s.mean), sd: Number(s.sd) }]));
-        
-        // --- CALCULATION LOGIC (COMMON FOR BOTH REGIONS) ---
-        // 3) Compute per-question z, phi (probability)
-        const questions = [];
-        for (let i = 1; i <= 51; i++) {
-            const ans = answersRow[`q${i}`];
-            const ansValue = Number(ans); 
-            // Skip if answer is invalid or missing
-            if (isNaN(ansValue) || ans === undefined || ans === null) continue; 
-
-            const stat = statsMap.get(i);
-            const competency = mappingMap.get(i); 
-            
-            // Skip if stats or mapping is missing
-            if (!stat || !competency) continue;
-            
-            const mean = stat.mean;
-            const sd = stat.sd;
-            // Z-score calculation
-            let z = (sd === 0 || isNaN(sd)) ? 0 : (ansValue - mean) / sd; 
-            const pTwoSided = phi(Math.abs(z)); // Assuming phi is the Standard Normal CDF
-
-            questions.push({
-                q_id: i,
-                competency: competency, 
-                phi: pTwoSided, 
-            });
+        // 3) Calculate score based on region
+        if (isAsia) {
+            // Asia calculation
+            const statsMap = new Map(statsRows.map(s => [s.q_id, { mean: Number(s.mean), sd: Number(s.sd) }]));
+            return await calculateAsiaScore(playerId, answersRow, statsRows);
+        } else {
+            // Africa calculation
+            const statsMap = new Map(statsRows.map(s => [s.q_id, { mean: Number(s.mean), sd: Number(s.sd) }]));
+            return await calculateAfricaScore(playerId, answersRow, statsMap);
         }
-        
-        // 4) Calculate all 10 competencies raw scores (0-1)
-        const rawCompetencyScores = {};
-        for (const name of competencyList) {
-            const metrics = calculateCompetencyMetrics(name, questions);
-            rawCompetencyScores[name] = metrics.Competency_Score_Raw;
-        }
-        
-        // 5) Calculate Player Behavior triat overall score using weights
-        let overallScoreSum = 0;
-        for (const name of competencyList) {
-            const scoreDecimal = rawCompetencyScores[name] || 0; // default to 0 if missing
-            const weight = WEIGHTS[name];
-            
-            overallScoreSum += scoreDecimal * (weight / TOTAL_WEIGHT);
-        }
-        
-        // Final Score (0-100)
-        const finalOverallScore = Number(overallScoreSum.toFixed(4)) * 100;
-
-        return finalOverallScore;
 
     } catch (err) {
         console.error("calculatePlayerOverallScore ERROR for player:", playerId, err);
-        return null; // Return null in case of calculation error
+        return null;
     }
 }
 
-
-// ----------------------------------------------------------------------
-// 4. Merged getCoachPlayers API
-// ----------------------------------------------------------------------
-// export const getCoachPlayers = async (req, res) => {
-//     try {
-//         const coachId = req.user.id;
-
-//         // 1. Fetch all players for the coach
-//         const [players] = await pool.query(
-//             `
-//             SELECT 
-//                 p.p_id,
-//                 p.p_name,
-//                 p.p_age,
-//                 p.p_email,
-//                 p.team_id,
-//                 t.team_name,
-//                 p.p_added_by,
-//                 p.created_at
-//             FROM players AS p
-//             LEFT JOIN teams AS t 
-//                 ON p.team_id = t.team_id
-//             WHERE p.p_added_by = ?
-//             ORDER BY p.created_at DESC
-//             `,
-//             [coachId]
-//         );
-
-//         if (!players || players.length === 0) {
-//             return res.json([]);
-//         }
-
-//         // 2. Loop through each player to calculate their overall score
-//         const playersWithScore = [];
-//         for (const player of players) {
-//             const playerId = player.p_id;
-            
-//             // Calculate the score for the current player
-//             const overallScore = await calculatePlayerOverallScore(playerId);
-
-//             // 3. Construct the final player object with ONLY the required fields
-//             playersWithScore.push({
-//                 p_id: player.p_id,
-//                 p_name: player.p_name,
-//                 p_age: player.p_age,
-//                 p_email: player.p_email,
-//                 team_id: player.team_id,
-//                 team_name: player.team_name,
-//                 p_added_by: player.p_added_by,
-//                 created_at: player.created_at,
-//                 // Add the overall score (required field)
-//                 Player_Behavior_Overall_Score: overallScore !== null ? overallScore : "N/A"
-//             });
-//         }
-
-//         // 4. Return the list of players with their overall score
-//         return res.json(playersWithScore);
-//     } catch (err) {
-//         console.error("getCoachPlayers ERROR:", err);
-//         return res.status(500).json({ message: "Failed to load players and scores" });
-//     }
-// };
-
-// ----------------------------------------------------------------------
-// 4. Merged getCoachPlayers API (Updated)
-// ----------------------------------------------------------------------
 export const getCoachPlayers = async (req, res) => {
     try {
         const coachId = req.user.id;
@@ -464,7 +264,6 @@ export const getCoachPlayers = async (req, res) => {
 
         // 1. Fetch all players for the coach
         const [players] = await pool.query(
-            // ... (rest of the SQL query is the same)
             `
             SELECT 
                 p.p_id,
@@ -518,6 +317,7 @@ export const getCoachPlayers = async (req, res) => {
         return res.status(500).json({ message: "Failed to load players and scores" });
     }
 };
+
 
 
 

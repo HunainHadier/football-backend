@@ -30,6 +30,8 @@ app.use(cors({
     "http://localhost:5174",
      "http://72.61.224.128:5173",
     "http://sportsassessor.com"
+    "http://72.61.224.128:5173",
+    "https://sportsassessor.com"
   ],
   credentials: true
 }));

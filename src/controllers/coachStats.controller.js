@@ -440,70 +440,196 @@ export const getPlayerStatsAverage = async (req, res) => {
 };
 
 
+// export const updatePlayerStats = async (req, res) => {
+//   try {
+//     const playerId = req.params.playerId;
+//     const updatedStats = req.body;
+
+//     console.log("Received update request for player:", playerId);
+//     console.log("Update data:", updatedStats);
+
+//     // Get the latest stats record for this player
+//     const [existingStats] = await pool.query(
+//       `SELECT * FROM player_stats WHERE player_id = ? ORDER BY created_at DESC LIMIT 1`,
+//       [playerId]
+//     );
+
+//     if (existingStats.length === 0) {
+//       return res.status(404).json({ message: "No stats found for this player" });
+//     }
+
+//     const currentStatPsId = existingStats[0].ps_id;
+//     console.log("Updating record with ps_id:", currentStatPsId);
+
+//     // Update the stats using ps_id - remove updated_at
+//     const updateQuery = `
+//       UPDATE player_stats 
+//       SET 
+//         matches = ?, goals = ?, assists = ?, shots = ?, shots_on_goal = ?,
+//         big_chances = ?, key_passes = ?, tackles = ?, pass_completion_pct = ?,
+//         minutes = ?, cautions = ?, ejections = ?, progressive_carries = ?,
+//         defensive_actions = ?
+//       WHERE ps_id = ?
+//     `;
+
+//     const values = [
+//       updatedStats.matches || 0,
+//       updatedStats.goals || 0,
+//       updatedStats.assists || 0,
+//       updatedStats.shots || 0,
+//       updatedStats.shots_on_goal || 0,
+//       updatedStats.big_chances || 0,
+//       updatedStats.key_passes || 0,
+//       updatedStats.tackles || 0,
+//       updatedStats.pass_completion_pct || 0,
+//       updatedStats.minutes || 0,
+//       updatedStats.cautions || 0,
+//       updatedStats.ejections || 0,
+//       updatedStats.progressive_carries || 0,
+//       updatedStats.defensive_actions || 0,
+//       currentStatPsId  // Use ps_id here
+//     ];
+
+//     const [result] = await pool.query(updateQuery, values);
+//     console.log("Update result:", result);
+
+//     res.json({
+//       success: true,
+//       message: "Player statistics updated successfully",
+//       updatedId: currentStatPsId
+//     });
+
+//   } catch (err) {
+//     console.error("updatePlayerStats error:", err);
+//     return res.status(500).json({ message: "Failed to update player statistics" });
+//   }
+// };
+
 export const updatePlayerStats = async (req, res) => {
   try {
     const playerId = req.params.playerId;
-    const updatedStats = req.body;
+    const data = req.body;
 
-    console.log("Received update request for player:", playerId);
-    console.log("Update data:", updatedStats);
-
-    // Get the latest stats record for this player
-    const [existingStats] = await pool.query(
-      `SELECT * FROM player_stats WHERE player_id = ? ORDER BY created_at DESC LIMIT 1`,
+    // 1️⃣ Get player's team
+    const [[player]] = await pool.query(
+      `SELECT team_id FROM players WHERE p_id = ?`,
       [playerId]
     );
 
-    if (existingStats.length === 0) {
-      return res.status(404).json({ message: "No stats found for this player" });
+    if (!player || !player.team_id) {
+      return res.status(400).json({ message: "Player team not found" });
     }
 
-    const currentStatPsId = existingStats[0].ps_id;
-    console.log("Updating record with ps_id:", currentStatPsId);
+    const teamId = player.team_id;
 
-    // Update the stats using ps_id - remove updated_at
-    const updateQuery = `
-      UPDATE player_stats 
-      SET 
+    // 2️⃣ Latest stats record
+    const [statsRows] = await pool.query(
+      `SELECT * FROM player_stats 
+       WHERE player_id = ? 
+       ORDER BY created_at DESC 
+       LIMIT 1`,
+      [playerId]
+    );
+
+    if (statsRows.length === 0) {
+      return res.status(404).json({ message: "No player stats found" });
+    }
+
+    const stat = statsRows[0];
+    const psId = stat.ps_id;
+    const year = stat.year;
+
+    // 3️⃣ Derived values
+    const matches = data.matches ?? stat.matches;
+    const minutes = matches * 90;
+
+    // 4️⃣ UPDATE player_stats (✅ SAME RECORD)
+    await pool.query(
+      `
+      UPDATE player_stats SET
         matches = ?, goals = ?, assists = ?, shots = ?, shots_on_goal = ?,
         big_chances = ?, key_passes = ?, tackles = ?, pass_completion_pct = ?,
         minutes = ?, cautions = ?, ejections = ?, progressive_carries = ?,
         defensive_actions = ?
       WHERE ps_id = ?
-    `;
+      `,
+      [
+        matches,
+        data.goals ?? stat.goals,
+        data.assists ?? stat.assists,
+        data.shots ?? stat.shots,
+        data.shots_on_goal ?? stat.shots_on_goal,
+        data.big_chances ?? stat.big_chances,
+        data.key_passes ?? stat.key_passes,
+        data.tackles ?? stat.tackles,
+        data.pass_completion_pct ?? stat.pass_completion_pct,
+        minutes,
+        data.cautions ?? stat.cautions,
+        data.ejections ?? stat.ejections,
+        data.progressive_carries ?? stat.progressive_carries,
+        data.defensive_actions ?? stat.defensive_actions,
+        psId
+      ]
+    );
 
-    const values = [
-      updatedStats.matches || 0,
-      updatedStats.goals || 0,
-      updatedStats.assists || 0,
-      updatedStats.shots || 0,
-      updatedStats.shots_on_goal || 0,
-      updatedStats.big_chances || 0,
-      updatedStats.key_passes || 0,
-      updatedStats.tackles || 0,
-      updatedStats.pass_completion_pct || 0,
-      updatedStats.minutes || 0,
-      updatedStats.cautions || 0,
-      updatedStats.ejections || 0,
-      updatedStats.progressive_carries || 0,
-      updatedStats.defensive_actions || 0,
-      currentStatPsId  // Use ps_id here
-    ];
+    // 5️⃣ 🔥 UPDATE team_stats (NO INSERT)
+    await pool.query(
+      `
+      UPDATE team_stats ts
+      JOIN (
+        SELECT 
+          p.team_id,
+          ps.year,
+          SUM(ps.goals) AS goals,
+          SUM(ps.assists) AS assists,
+          SUM(ps.shots) AS shots,
+          SUM(ps.shots_on_goal) AS shots_on_goal,
+          SUM(ps.big_chances) AS big_chances,
+          SUM(ps.key_passes) AS key_passes,
+          SUM(ps.tackles) AS tackles,
+          AVG(ps.pass_completion_pct) AS pass_completion_pct,
+          (? * 90) AS minutes,
+          SUM(ps.cautions) AS cautions,
+          SUM(ps.ejections) AS ejections,
+          SUM(ps.progressive_carries) AS progressive_carries,
+          SUM(ps.defensive_actions) AS defensive_actions
+        FROM players p
+        JOIN player_stats ps ON ps.player_id = p.p_id
+        WHERE p.team_id = ? AND ps.year = ?
+        GROUP BY p.team_id, ps.year
+      ) x
+      ON ts.team_id = x.team_id AND ts.year = x.year
+      SET
+        ts.matches = ?,
+        ts.goals = x.goals,
+        ts.assists = x.assists,
+        ts.shots = x.shots,
+        ts.shots_on_goal = x.shots_on_goal,
+        ts.big_chances = x.big_chances,
+        ts.key_passes = x.key_passes,
+        ts.tackles = x.tackles,
+        ts.pass_completion_pct = x.pass_completion_pct,
+        ts.minutes = x.minutes,
+        ts.cautions = x.cautions,
+        ts.ejections = x.ejections,
+        ts.progressive_carries = x.progressive_carries,
+        ts.defensive_actions = x.defensive_actions
+      `,
+      [matches, teamId, year, matches]
+    );
 
-    const [result] = await pool.query(updateQuery, values);
-    console.log("Update result:", result);
-
-    res.json({
+    return res.json({
       success: true,
-      message: "Player statistics updated successfully",
-      updatedId: currentStatPsId
+      message: "Player & Team stats updated successfully",
+      ps_id: psId,
     });
 
   } catch (err) {
     console.error("updatePlayerStats error:", err);
-    return res.status(500).json({ message: "Failed to update player statistics" });
+    res.status(500).json({ message: "Failed to update stats" });
   }
 };
+
 
 export const updateTeamStats = async (req, res) => {
   try {
